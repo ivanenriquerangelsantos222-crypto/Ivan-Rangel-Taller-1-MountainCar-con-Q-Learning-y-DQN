@@ -40,10 +40,18 @@ class QNetwork(nn.Module):
 
     def __init__(self, state_dim: int, action_dim: int, hidden: int = 128) -> None:
         super().__init__()
-        raise NotImplementedError("EXERCISE 2a: build the Q-network")
+        # No activation on the last layer: Q-values are unbounded reals (all
+        # negative on MountainCar), not probabilities.
+        self.net = nn.Sequential(
+            nn.Linear(state_dim, hidden),
+            nn.ReLU(),
+            nn.Linear(hidden, hidden),
+            nn.ReLU(),
+            nn.Linear(hidden, action_dim),
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        raise NotImplementedError("EXERCISE 2a: implement forward()")
+        return self.net(x)
 
 
 # ── Replay buffer ────────────────────────────────────────────────────
@@ -96,6 +104,12 @@ class DQNAgent:
         buffer_capacity: int = 100_000,
         target_update_freq: int = 10,
         hidden: int = 128,
+        # EXERCISE 3 fix: sustained-run exploration. Once we decide to explore
+        # we commit to that action for a random burst between these bounds,
+        # instead of drawing a fresh coin flip every step. This gives the
+        # exploration temporal correlation, which is what MountainCar needs.
+        explore_hold_min: int = 15,
+        explore_hold_max: int = 35,
     ) -> None:
         self.env_id = env_id
         self.lr = lr
@@ -107,6 +121,12 @@ class DQNAgent:
         self.buffer_capacity = buffer_capacity
         self.target_update_freq = target_update_freq
         self.hidden = hidden
+        self.explore_hold_min = explore_hold_min
+        self.explore_hold_max = explore_hold_max
+        # Per-episode burst state: which action we are currently holding, and
+        # how many more steps we owe it. Reset at the start of each episode.
+        self._burst_action = 0
+        self._burst_ttl = 0
         self.training_episodes = 0
 
         env = gym.make(env_id)
@@ -145,9 +165,40 @@ class DQNAgent:
         EXERCISES.md has the full investigation and a ladder of further clues,
         from gentle to nearly-the-answer -- take only as many as you need. Try
         to diagnose it from your own measurements first.
+
+        Fix (EXERCISE 3): sustained-run exploration.
+
+        The car needs a long push in the same direction to build momentum, and
+        i.i.d. epsilon-greedy cannot produce that (the probability of drawing
+        the same action ~20 times in a row from 3 choices is ~3e-10).
+
+        The change here is minimal: when we decide to explore, we commit to a
+        random action for a burst of `[hold_min, hold_max]` steps instead of
+        rerolling every step. Any greedy step aborts the burst, and every new
+        episode resets it (see train()). The learning rule and the environment
+        are untouched -- only the *shape* of exploration is.
         """
-        if not deterministic and random.random() < self.epsilon:
-            return random.randrange(self.action_dim)
+        # Evaluation / rendering must never explore. Pure greedy on the online
+        # net, no burst state consulted.
+        if deterministic:
+            with torch.no_grad():
+                t = torch.as_tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
+                return int(self.q_net(t).argmax(dim=1).item())
+
+        if random.random() < self.epsilon:
+            if self._burst_ttl <= 0:
+                # Start a fresh sustained burst. For MountainCar the middle
+                # action means "no push" and never helps escape the valley,
+                # so exploratory bursts are drawn only from the accelerating
+                # actions (0 = left, action_dim - 1 = right). This still
+                # covers every direction the car can be pushed.
+                self._burst_action = random.choice((0, self.action_dim - 1))
+                self._burst_ttl = random.randint(self.explore_hold_min, self.explore_hold_max)
+            self._burst_ttl -= 1
+            return self._burst_action
+
+        # Greedy step: cancel any burst in progress and act on the net.
+        self._burst_ttl = 0
         with torch.no_grad():
             t = torch.as_tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
             return int(self.q_net(t).argmax(dim=1).item())
@@ -197,7 +248,22 @@ class DQNAgent:
         #      Tip: zero_grad() -> backward() -> step(), in that order.
         #
         # Return the scalar loss value (.item()).
-        raise NotImplementedError("EXERCISE 2b: implement the DQN learning step")
+        # 1. Q(s, a) for the actions actually taken -- shape (B, 1).
+        current_q = self.q_net(states_t).gather(1, actions_t)
+
+        # 2. max_a' Q_target(s', a') from the frozen target net, no gradients.
+        with torch.no_grad():
+            next_q = self.target_net(next_states_t).max(dim=1, keepdim=True).values
+            # 3. Bellman target. Where terminated=1 the bootstrap term vanishes,
+            #    so the target collapses to just `reward`, as the theory requires.
+            target_q = rewards_t + self.gamma * next_q * (1.0 - terminateds_t)
+
+        # 4. One gradient step on MSE(current_q, target_q).
+        loss = self.loss_fn(current_q, target_q)
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+        return float(loss.item())
 
     # ── training loop ─────────────────────────────────────────────────
 
@@ -209,6 +275,8 @@ class DQNAgent:
             obs, _ = env.reset()
             total_reward = 0.0
             done = False
+            # Fresh burst state per episode (EXERCISE 3).
+            self._burst_ttl = 0
 
             while not done:
                 action = self.select_action(obs)
@@ -255,6 +323,8 @@ class DQNAgent:
         "buffer_capacity",
         "target_update_freq",
         "hidden",
+        "explore_hold_min",
+        "explore_hold_max",
     )
 
     def save(self, path: Path) -> None:
