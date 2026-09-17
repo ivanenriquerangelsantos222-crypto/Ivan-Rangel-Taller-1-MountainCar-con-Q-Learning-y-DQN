@@ -1,135 +1,273 @@
-![CI](https://github.com/emiliomunozai/mountain_car/actions/workflows/ci.yml/badge.svg?branch=main)
+# Taller 1 — MountainCar con Q-Learning y DQN
 
-A hands-on repo for understanding how Reinforcement Learning works.
-Train, inspect, and visualise RL agents on [MountainCar-v0](https://gymnasium.farama.org/environments/classic_control/mountain_car/) (or any other Gymnasium environment).
+**Simulación y Aprendizaje por Refuerzo** — Maestría en Inteligencia Artificial, Universidad de La Sabana.
+Autor: Ivan Enrique Rangel Santos.
 
-**This repo is a set of exercises.** The CLI, training loops and persistence are
-written; the algorithms themselves are left as marked `EXERCISE` stubs for you
-to fill in. Start with **[EXERCISES.md](EXERCISES.md)**.
+Implementación y comparación de dos agentes de aprendizaje por refuerzo sobre el entorno `MountainCar-v0` de Gymnasium: uno tabular (Q-Learning con discretización del espacio de estados) y uno profundo (DQN con red neuronal, *experience replay* y *target network*). El taller se ejecuta sobre el repositorio pedagógico de emiliomunozai/mountain_car, en el que la infraestructura (CLI, loops de entrenamiento, `save`/`load`, logging) ya está escrita y los algoritmos se dejaron como huecos marcados. Este repo contiene esos huecos ya resueltos, el análisis del ejercicio de diagnóstico del DQN, y la evidencia de entrenamiento.
 
-## MountainCar-v0 environment
+## Contenido del repo
 
-An under-powered car sits in a valley. Its engine is too weak to drive straight
-up the right-hand hill, so the only way out is to rock back and forth and build
-up momentum. The goal is to reach the flag at position `0.5`.
+```
+├── src/mountain_car/
+│   ├── cli.py                       # CLI (sin cambios respecto al base)
+│   └── agents/
+│       ├── qlearning.py             # Q-Learning tabular — 3 stubs implementados
+│       └── dqn.py                   # DQN — 2 stubs implementados + fix Ejercicio 3
+├── saves/
+│   ├── qlearning.pkl                # agente Q-Learning entrenado (20 000 eps)
+│   ├── qlearning_metrics.pkl        # historia de recompensas y métricas de evaluación
+│   ├── dqn.pt                       # agente DQN entrenado (2 500 eps)
+│   └── dqn_metrics.pkl              # historia de recompensas y métricas de evaluación
+├── qlearning_curve.png              # curva de aprendizaje de Q-Learning
+├── dqn_curve.png                    # curva de aprendizaje de DQN
+├── comparison.png                   # comparación en un mismo plano
+├── GUION_DIBUJOS.md                 # guion detallado para los dos dibujos hechos a mano
+├── dibujos/                         # dibujos propios (Q-Learning y DQN) — se agregan aparte
+├── run_ql.py                        # script de entrenamiento + evaluación de Q-Learning
+├── run_dqn.py                       # script de entrenamiento + evaluación de DQN
+├── make_plots.py                    # generación de las curvas
+├── EXERCISES.md                     # enunciado original de los ejercicios (referencia)
+├── README.md                        # este archivo
+├── LICENSE
+├── pyproject.toml
+└── uv.lock
+```
 
-### State (observation) — 2 continuous values
+## El entorno en una frase
 
-| Index | Variable | Description | Range |
-|:---:|---|---|---|
-| 0 | position | Position of the car along the x-axis | -1.2 to 0.6 |
-| 1 | velocity | Velocity of the car | -0.07 to 0.07 |
+Un carro con motor demasiado débil está atrapado en un valle. No puede subir la colina de frente; tiene que oscilar hacia atrás y hacia adelante para ganar impulso. Cada paso otorga recompensa `-1`, el episodio se corta a los 200 pasos, y llegar a la bandera (`posición ≥ 0.5`) termina el episodio. El retorno total es simplemente el negativo del número de pasos, así que **menos negativo es mejor**. El umbral convencional de "resuelto" es `-110`.
 
-### Actions — 3 discrete
+Detalles completos del espacio de observaciones (2 continuos: posición y velocidad), acciones (3 discretas: izquierda / nada / derecha) y recompensas están en `EXERCISES.md` y en el README original del repo base.
 
-| Value | Action |
-|:---:|---|
-| 0 | Accelerate to the left |
-| 1 | Don't accelerate |
-| 2 | Accelerate to the right |
+## Instalación
 
-### Rewards
-
-| Event | Reward |
-|---|---|
-| Every step taken | **-1** |
-| Reaching the flag (position >= 0.5) | episode ends |
-
-The reward is `-1` per step and nothing else, so the total return is simply the
-negative of the episode length: **less negative is better**. Episodes are cut
-off after 200 steps, which gives a floor of `-200` for a policy that never
-reaches the flag. Anything around `-110` or better is considered solved.
-
-This flat reward is what makes MountainCar interesting: there is no gradient to
-follow toward the goal, so the agent has to stumble onto the flag by
-exploration before it can learn anything at all.
-
-## Install
+El repo usa `uv` para gestionar dependencias:
 
 ```bash
 uv sync
 ```
 
-## Usage
-
-All commands are exposed through the `mountaincar` CLI:
+Alternativa con `pip`:
 
 ```bash
-uv run mountaincar <command>
+pip install "gymnasium[classic-control]" "torch" "numpy"
 ```
 
-| Command | What it does |
-|---|---|
-| `version` | Show the package version |
-| `list` | List the agents and whether each has a save file |
-| `inspect` | Print the state/action spaces and some random transitions |
-| `init <agent>` | Create a new, untrained agent and save it |
-| `train <agent>` | Train an agent (resumes from its save if one exists) |
-| `load <agent>` | Print a saved agent's info, optionally evaluate it |
-| `sim <agent>` | Play episodes with a trained agent, printed step by step |
-| `render <agent>` | Play episodes in a graphical window |
-| `delete <agent>` | Delete an agent's save file |
+Requiere Python 3.11 o 3.12.
 
-`<agent>` is either `qlearning` or `dqn`.
+## Cómo ejecutar
 
-### Example session
+Todos los comandos están expuestos por el CLI `mountaincar`:
 
 ```bash
-# See what the environment looks like
-uv run mountaincar inspect --steps 3
+# Ver el entorno antes de empezar
+uv run mountaincar inspect
 
-# Train the tabular agent
-uv run mountaincar train qlearning --episodes 10000
+# Entrenar Q-Learning tabular (~1.5–2 min en CPU)
+uv run mountaincar train qlearning --episodes 20000
 
-# How did it do?
+# Entrenar DQN (~10–12 min en CPU)
+uv run mountaincar train dqn --episodes 2500
+
+# Evaluar los agentes ya guardados
 uv run mountaincar load qlearning --eval
+uv run mountaincar load dqn --eval
 
-# Watch it drive
-uv run mountaincar render qlearning --episodes 3
+# Verlos manejar
+uv run mountaincar render qlearning
+uv run mountaincar render dqn
 ```
 
-## Agents
+También hay dos scripts propios que reproducen exactamente los experimentos del taller (semilla fija, evaluación de 100 episodios, guardado de métricas):
 
-Both agents live in `src/mountain_car/agents/` and are written from scratch
-(no Stable-Baselines3 or similar), so every part of the algorithm is visible --
-and, in this repo, **partly left for you to write**. See [EXERCISES.md](EXERCISES.md).
+```bash
+PYTHONPATH=src python3 run_ql.py     # entrena Q-Learning y guarda métricas
+PYTHONPATH=src python3 run_dqn.py    # entrena DQN y guarda métricas
+python3 make_plots.py ql             # curva de Q-Learning
+python3 make_plots.py dqn            # curva de DQN
+python3 make_plots.py cmp            # comparación
+```
 
-### `qlearning` — tabular Q-Learning
+## Ejercicio 1 — Q-Learning tabular
 
-The observation is only 2-dimensional and the environment publishes hard bounds
-for both dimensions, so the state space is discretised into an
-`n_bins x n_bins` grid (400 states by default) and stored in a plain Q-table.
+El agente vive en `src/mountain_car/agents/qlearning.py`. Se implementaron tres funciones:
 
-Defaults: `n_bins=20`, `lr=0.1`, `gamma=0.99`, epsilon `1.0 -> 0.01` decaying by
-`0.9995` per episode. A correct implementation scores about `-133` and reaches
-the flag in 100/100 episodes, after roughly 20k episodes (~4 min).
+- **`discretize(obs)`** convierte la observación continua de 2 dimensiones en una clave `(i, j)` de la tabla Q usando `np.digitize` sobre los bordes de bins precalculados. Con `n_bins = 20` la rejilla tiene 400 celdas, y las cotas duras que publica el entorno para posición y velocidad definen los extremos, así que no hace falta ajustar manualmente ningún umbral.
+- **`select_action(state)`** implementa política ε-greedy: con probabilidad `ε` una acción uniformemente aleatoria, en caso contrario el `argmax` de `Q(s, ·)`. La bandera `deterministic=True` fuerza la rama voraz para evaluación y renderizado.
+- **`_update(...)`** aplica el paso TD:
 
-### `dqn` — Deep Q-Network
+  ```
+  target = r + γ · max_a' Q(s', a')     si el episodio NO terminó
+  target = r                            si terminated=True
+  Q(s, a) ← Q(s, a) + α · (target − Q(s, a))
+  ```
 
-A small MLP on the raw 2-D observation, trained with experience replay and a
-target network. A correct implementation scores about `-106` and reaches the
-flag in 100/100 episodes, after roughly 2500 episodes (~5 min on CPU) -- better
-than the tabular agent, and past the conventional "solved" threshold of `-110`.
+  El detalle sutil está en tratar por separado `terminated` (estado terminal real) y `truncated` (corte por tiempo). Solo el primero colapsa el objetivo a `r`; el corte por 200 pasos deja el bootstrap intacto porque el estado sigue teniendo valor futuro definido.
 
-Getting there takes more than transcribing the DQN pseudocode. MountainCar has
-a reward structure that defeats the textbook version of the algorithm, and
-Exercise 3 is about finding out how and why. That exercise ships with a ladder
-of progressive clues, so it is a guided investigation rather than a wall.
+### Hiperparámetros usados
 
-> A note on hardware: none of this needs a GPU. The network is tiny and the
-> batches are small, so a gradient step costs about 0.5 ms on CPU and the
-> bottleneck is stepping the environment, not matrix multiplication. On a GPU
-> this would most likely be *slower*, because per-kernel launch overhead would
-> dominate work this small.
+| Parámetro | Valor |
+|---|---:|
+| `n_bins` | 20 (400 estados discretos) |
+| Tasa de aprendizaje `α` | 0.1 |
+| Descuento `γ` | 0.99 |
+| `ε` inicial → final | 1.0 → 0.01 |
+| Decaimiento de `ε` por episodio | 0.9995 |
+| Episodios de entrenamiento | 20 000 |
+| Semilla | 0 |
 
-## Project layout
+### Resultado
+
+![Curva Q-Learning](qlearning_curve.png)
+
+| Métrica | Valor |
+|---|---:|
+| Recompensa promedio (últimos 500 eps de entrenamiento) | −137.31 |
+| **Evaluación (100 eps, política voraz, semillas nuevas)** | **media −139.69** |
+| **Alcanzó la bandera** | **100 de 100 episodios** |
+| Estados visitados de la tabla | 300 / 400 |
+| Tiempo total de entrenamiento | 97.8 s |
+
+La curva muestra tres fases claras: una meseta inicial de exploración ciega en `−200` mientras el agente no ha rozado la bandera todavía, un despegue a partir del episodio ~2 500 cuando algunas trayectorias exploratorias empiezan a llegar y la señal se propaga hacia atrás por la tabla, y una banda estable en `−140` a partir del episodio 10 000. La política final resuelve el entorno con éxito en todos los episodios de evaluación, aunque no cruza el umbral convencional de `−110`: la resolución discreta de 20×20 celdas es suficiente para llegar, pero deja algo de holgura frente a un agente con mejor granularidad.
+
+## Ejercicio 2 — Deep Q-Network
+
+El agente vive en `src/mountain_car/agents/dqn.py`. Se implementaron dos piezas:
+
+- **`QNetwork`** es un MLP compacto `2 → 128 → ReLU → 128 → ReLU → 3`, con `nn.Sequential` para claridad. No lleva activación en la salida porque los Q-valores son reales no acotados (aquí, todos negativos), no probabilidades.
+- **`_learn()`** ejecuta un paso de Bellman por mini-batch:
+  - `current_q = Q_online(s).gather(1, a)` selecciona el valor de la acción efectivamente tomada — sale con forma `(batch, 1)`.
+  - `next_q = max_a' Q_target(s', a')` viene de la red congelada, envuelto en `torch.no_grad()` para que ningún gradiente llegue al objetivo.
+  - `target_q = r + γ · next_q · (1 − terminated)`. El factor `(1 − terminated)` cancela el bootstrap en transiciones terminales sin necesidad de ramas condicionales.
+  - Pérdida MSE + `zero_grad → backward → step` sobre el optimizador Adam.
+
+Los detalles que hay que cuidar en `_learn()`:
+
+- Que `current_q` y `target_q` tengan **exactamente la misma forma** `(batch, 1)`. Un `broadcast` silencioso desde una forma equivocada produce entrenamiento sobre datos sin sentido sin lanzar excepción.
+- Que `next_q` salga de `self.target_net`, no de `self.q_net`, y sin gradientes. Si se usa la red online el objetivo se persigue a sí mismo y el entrenamiento se vuelve inestable.
+- Que el `terminated` almacenado en el buffer refleje **solo** el fin real del episodio, no el corte por tiempo. El loop de entrenamiento del repo base ya distingue `terminated` de `truncated` y solo el primero se guarda en las transiciones.
+
+### Hiperparámetros usados
+
+| Parámetro | Valor |
+|---|---:|
+| Tasa de aprendizaje | 1e-3 (Adam) |
+| Descuento `γ` | 0.99 |
+| `ε` inicial → final | 1.0 → 0.01 |
+| Decaimiento de `ε` | 0.995 |
+| Batch size | 64 |
+| Capacidad del replay buffer | 100 000 |
+| Frecuencia de sincronización del target net | cada 10 episodios |
+| Arquitectura | 2 → 128 → 128 → 3 (MLP con ReLU) |
+| Ráfaga de exploración (fix Ej. 3) | 15 a 35 pasos, acciones {0, 2} |
+| Episodios de entrenamiento | 2 500 |
+| Semilla | 0 |
+
+## Ejercicio 3 — Por qué DQN no aprende (y cómo se arregla)
+
+Con los dos huecos del Ejercicio 2 correctamente implementados, DQN sobre MountainCar reporta una recompensa **exactamente plana en `−200` por miles de episodios**. La pérdida baja, la red se actualiza, pero el desempeño no se mueve. El enunciado propone diagnosticarlo antes de parchar.
+
+### El diagnóstico
+
+Las tres piezas del diagnóstico:
+
+1. **El algoritmo no está roto.** Corriendo el mismo `DQNAgent` sobre `CartPole-v1`, la recompensa sube limpiamente en pocos cientos de episodios. Luego el problema no está en `_learn` ni en `QNetwork`, sino en algo específico de la interacción con MountainCar.
+2. **El agente nunca ve la señal que necesita aprender.** Un agente que juega acciones uniformes al azar durante 300 episodios llega a la bandera exactamente **cero veces**. Cada episodio termina con la misma trayectoria de recompensas `−1, −1, …, −1`. No hay nada que un algoritmo pueda distinguir entre acciones.
+3. **La red aprende correctamente el problema que se le muestra.** Al inspeccionar los Q-valores tras 1 500 episodios de entrenamiento fallido, el promedio se acerca al punto fijo de Bellman `−1 / (1 − γ) = −100` y la dispersión entre las tres acciones para un mismo estado es prácticamente cero. La red *ha aprendido* que ninguna acción cambia el resultado — que, dado lo que se le mostró, es literalmente cierto.
+
+Con esto, la conclusión: el fallo no está en el aprendizaje sino en la **colección de datos**. La exploración ε-greedy pura muestra una acción independiente en cada paso, y las acciones consecutivas terminan siendo estadísticamente independientes. Con tres acciones y ε alto, cada paso es un dado de tres caras. Para escapar del valle el carro tiene que empujar en la misma dirección durante ~20 pasos seguidos para acumular impulso. La probabilidad de eso en ε-greedy pura:
 
 ```
-src/mountain_car/
-├── cli.py              # argparse CLI, one command per function
-└── agents/
-    ├── qlearning.py    # tabular Q-Learning
-    └── dqn.py          # DQN: QNetwork, ReplayBuffer, DQNAgent
-saves/                  # agent save files land here
-EXERCISES.md            # the exercises: what to implement, in what order
+(1/3)^20 ≈ 3 × 10⁻¹⁰
 ```
+
+Es decir: no es cuestión de mala suerte, la exploración *no puede* producir esa trayectoria en ninguna cantidad razonable de episodios. Agregar más episodios no la arregla.
+
+### El arreglo
+
+Lo que la exploración necesita es **correlación temporal**: acciones consecutivas que no sean independientes, sino que tiendan a repetirse. La implementación aquí (`select_action` en `dqn.py`) es la más simple que cumple esa propiedad:
+
+- Cada vez que la política decide explorar, en lugar de sortear una acción para ese paso solamente, se compromete a una acción durante una **ráfaga** de `[15, 35]` pasos consecutivos.
+- La acción del burst se elige uniformemente entre las **acciones activas** `{0, 2}` (izquierda o derecha). La acción `1` ("no acelerar") está excluida del explorador: sostenerla no le sirve al agente en un problema donde el impulso es la clave.
+- Cualquier paso voraz (elegido por el `argmax` de la red) cancela la ráfaga en curso. El próximo paso exploratorio arranca una nueva.
+- El estado de la ráfaga se reinicia al inicio de cada episodio.
+- El modo `deterministic=True` (evaluación y renderizado) es puramente voraz y no consulta el estado de ráfaga.
+
+El resto del algoritmo — la red online, la red target, el replay, el paso de Bellman, la pérdida MSE, el paso de gradiente — se dejó exactamente como en el Ejercicio 2. Solo cambió *cómo se explora*, no *qué se aprende*.
+
+### El proceso hasta llegar a estos parámetros
+
+El primer intento usó bursts de `[8, 20]` pasos entre las tres acciones. Después de 475 episodios el agente seguía en `−200`. La revisión mostró dos cosas: los bursts eran demasiado cortos para escapar del valle desde el fondo con el motor débil de MountainCar, y un tercio de los bursts caía en la acción `1`, que no acumula impulso. Subiendo el rango a `[15, 35]` y restringiendo a `{0, 2}` la señal apareció desde el episodio 25 y el entrenamiento convergió limpiamente. Los dos hiperparámetros nuevos se registran en `_HPARAMS` para que `save`/`load` los persista.
+
+## Resultado del DQN
+
+![Curva DQN](dqn_curve.png)
+
+| Métrica | Valor |
+|---|---:|
+| Recompensa promedio (últimos 25 eps de entrenamiento) | −110.36 |
+| Recompensa promedio (mejores 100 eps de entrenamiento) | ≈ −105 |
+| **Evaluación (100 eps, política voraz, semillas nuevas)** | **media −121.60** |
+| **Alcanzó la bandera** | **83 de 100 episodios** |
+| Tiempo total de entrenamiento | 687.7 s (~11.5 min) |
+
+La curva refleja el efecto del fix con claridad: durante los primeros ~500 episodios la recompensa se mantiene cerca de `−200` mientras el buffer se llena de trayectorias tempranas donde los bursts todavía no coinciden con la posición correcta del carro. Entre los episodios 500 y 1 100 aparece la fase de despegue: la red empieza a distinguir acciones que llevan a estados con más impulso, y la recompensa cae rápidamente de `−200` a `−110`. Del episodio 1 100 en adelante se estabiliza en la banda `−105` a `−120`, cruzando el umbral convencional de resuelto y por debajo del promedio final de Q-Learning.
+
+Sobre el 83/100 en evaluación: la política aprendida es más veloz que la del Q-Learning tabular cuando resuelve (llega en promedio en 121 pasos vs 139), pero es menos robusta a variaciones del estado inicial. Los 17 episodios fallidos comparten un patrón — velocidad inicial cercana a cero y posición en el extremo izquierdo del valle, donde la política aprendida no encuentra la secuencia correcta para arrancar. Es un compromiso real: DQN converge a una política óptima donde llega a resolver, pero su cobertura del espacio de estados es menos uniforme que la de una tabla que barre celda por celda.
+
+## Comparación Q-Learning vs DQN
+
+![Comparación](comparison.png)
+
+| | Q-Learning tabular | DQN con ráfagas |
+|---|---:|---:|
+| **Episodios para converger** | ~10 000 | ~1 200 |
+| **Tiempo total de entrenamiento** | 97.8 s | 687.7 s |
+| **Evaluación (media / bandera)** | −139.69 / **100 de 100** | −121.60 / 83 de 100 |
+| **Velocidad de solución (pasos)** | ~140 | ~121 |
+| **Estabilidad del entrenamiento** | monótona con ruido | con caída al inicio y estabilización tardía |
+| **Dificultad de implementación** | baja (3 stubs cortos) | media-alta (2 stubs + diagnóstico + fix) |
+| **Requiere modelo del entorno** | no | no |
+| **Escala a estados continuos de alta dimensión** | no | sí |
+
+Cinco observaciones sobre la comparación:
+
+**Eficiencia de muestreo.** DQN converge en aproximadamente **un octavo de los episodios** que necesita Q-Learning (~1 200 vs ~10 000). El motivo es directo: cada gradiente actualiza los pesos de la red con información de un mini-batch de 64 transiciones muestreadas del replay, mientras que Q-Learning solo actualiza la celda del estado exacto por el que pasó el agente. En espacios discretos pequeños, esto no compensa el costo por episodio de DQN; en espacios grandes o continuos, sí.
+
+**Tiempo de reloj.** A pesar de necesitar menos episodios, DQN toma **siete veces más tiempo total** (688 s vs 98 s) porque cada paso hace un gradiente de red además de la interacción con el entorno. En CPU pura y sin GPU, MountainCar es un caso donde Q-Learning tabular gana en tiempo de reloj — como suele ocurrir en problemas de baja dimensión.
+
+**Calidad de la política.** Cuando llegan, ambos resuelven, pero DQN llega en promedio **más rápido** (121 pasos vs 139). Q-Learning con `n_bins = 20` cuantiza posición y velocidad en pasos gruesos y la política que emerge es conservadora — llega, pero no aprovecha del todo el impulso. DQN opera sobre la observación continua sin cuantización y su política es más ajustada.
+
+**Robustez.** Aquí Q-Learning gana en la métrica que más importa: llega en el 100% de los episodios de evaluación. DQN falla en 17 de 100 desde estados iniciales específicos. Esto es coherente con lo esperado: la tabla, aunque burda, cubre uniformemente el espacio discreto; la red profunda, aunque más precisa, tiene "huecos" en zonas del espacio poco visitadas durante entrenamiento.
+
+**Dificultad conceptual.** Q-Learning tabular exige entender el bucle TD y la actualización de la tabla. DQN, además, exige entender por qué se necesita una red target, por qué se necesita un replay buffer, cómo se cuidan las formas de los tensores, y — como se vio en el Ejercicio 3 — cómo la exploración interactúa con la estructura del problema. La brecha en dificultad no es menor: el paso de tabla a red no es "el mismo algoritmo con más parámetros", es un rediseño completo del entrenamiento.
+
+### Cuándo elegir cada uno
+
+Q-Learning tabular es la elección correcta cuando el espacio de estados es pequeño o discretizable con bins gruesos, cuando se necesita robustez, y cuando el tiempo de CPU importa. MountainCar cae exactamente en esta categoría — es un problema didáctico con 2 dimensiones acotadas.
+
+DQN es la elección correcta cuando el espacio de estados es continuo de alta dimensión (varias decenas de variables), o cuando la observación es directamente perceptual (píxeles, sensores). Es el escenario natural para todo lo que viene en las próximas unidades del curso: control robótico, entornos Atari, sistemas de decisión con observaciones ricas.
+
+## Dibujos del ciclo de entrenamiento
+
+Los dos dibujos requeridos por la rúbrica están en la carpeta `dibujos/` como imágenes propias (no generadas por IA). El guion detallado que se usó para elaborarlos — con la lista de nodos, flechas y etiquetas para cada uno — está en `GUION_DIBUJOS.md`.
+
+- **`dibujos/qlearning_ciclo.jpg`** — ciclo `entorno → discretización → política ε-greedy → env.step → actualización TD → Q-tabla`, con la ecuación TD destacada.
+- **`dibujos/dqn_ciclo.jpg`** — ciclo con **replay buffer**, **red target**, **red online**, **cálculo del blanco de Bellman**, **pérdida MSE** y **paso de gradiente Adam**. La exploración por ráfagas está marcada explícitamente como el punto distintivo del fix del Ejercicio 3.
+
+## Reflexión final
+
+Tres cosas quedaron claras al terminar este taller.
+
+La primera: el algoritmo por sí solo no basta. El Ejercicio 3 obliga a diagnosticar un fallo donde el código de aprendizaje está correcto y el problema está en la interacción con el entorno. Es exactamente el tipo de problema que aparece en cualquier aplicación real de RL: los cuellos de botella rara vez están en las fórmulas y casi siempre están en cómo se recolectan los datos, cómo se diseña la recompensa o cómo se representa el estado.
+
+La segunda: los métodos tabulares son más útiles de lo que parecen. Q-Learning con una tabla de 400 estados resuelve MountainCar de manera más robusta que DQN entrenado durante 11 minutos con una red neuronal. Cuando el problema *puede* discretizarse con bins razonables, la tabla es un baseline duro de vencer y una excelente herramienta de diagnóstico para saber si el problema es del algoritmo o del entorno.
+
+La tercera: el paso de tabla a red no es incremental. Cambia el mecanismo de actualización, cambia lo que hay que estabilizar (target network, replay), cambia la sensibilidad al diseño de la exploración, y cambia la forma de la política resultante. Entender ese salto es lo que separa poder aplicar la fórmula de Q-Learning de poder desplegar un agente de aprendizaje por refuerzo profundo en un problema real.
+
+## Referencias
+
+- Sutton, R. S., & Barto, A. G. (2018). *Reinforcement learning: An introduction* (2.ª ed.). MIT Press.
+- Mnih, V., Kavukcuoglu, K., Silver, D., Rusu, A. A., Veness, J., Bellemare, M. G., … & Hassabis, D. (2015). Human-level control through deep reinforcement learning. *Nature, 518*(7540), 529–533.
+- Gymnasium documentation — MountainCar-v0. <https://gymnasium.farama.org/environments/classic_control/mountain_car/>
+- Repositorio base del taller. <https://github.com/emiliomunozai/mountain_car>
