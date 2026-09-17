@@ -212,3 +212,8 @@ __marimo__/
 
 # Reference solutions - kept on disk for the instructor, never committed
 solutions/
+
+# Excepciones para el taller: evidencia de agentes entrenados
+!saves/.gitkeep
+!saves/*.pkl
+!saves/*.pt
