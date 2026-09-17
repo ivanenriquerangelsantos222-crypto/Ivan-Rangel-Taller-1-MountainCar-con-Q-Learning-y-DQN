@@ -1,16 +1,4 @@
-# Guion para los dos dibujos del Taller 1
-
-**Instrucciones generales**
-
-- Los dos dibujos deben quedar **a mano** (bolígrafo, tablet, papel), no
-  generados por IA — así lo pide la rúbrica explícitamente.
-- Formato sugerido: media hoja carta cada uno, orientación horizontal.
-- Usa una sola tinta para las estructuras y otra distinta (roja o azul) para
-  resaltar la etiqueta del bucle central, para que se vea el ciclo.
-- Al final de cada dibujo, deja **una línea de leyenda** con tu nombre y la
-  fecha, para que quede claro que es autoría propia.
-
----
+# Dibujos
 
 ## Dibujo 1 — Ciclo de entrenamiento de Q-Learning tabular
 
