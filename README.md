@@ -3,7 +3,9 @@
 **Simulación y Aprendizaje por Refuerzo** — Maestría en Inteligencia Artificial, Universidad de La Sabana.
 Autor: Ivan Enrique Rangel Santos.
 
-Implementación y comparación de dos agentes de aprendizaje por refuerzo sobre el entorno `MountainCar-v0` de Gymnasium: uno tabular (Q-Learning con discretización del espacio de estados) y uno profundo (DQN con red neuronal, *experience replay* y *target network*). El taller se ejecuta sobre el repositorio pedagógico de emiliomunozai/mountain_car, en el que la infraestructura (CLI, loops de entrenamiento, `save`/`load`, logging) ya está escrita y los algoritmos se dejaron como huecos marcados. Este repo contiene esos huecos ya resueltos, el análisis del ejercicio de diagnóstico del DQN, y la evidencia de entrenamiento.
+En este proyecto implementé y comparé dos agentes de aprendizaje por refuerzo sobre el conocido entorno MountainCar-v0 de Gymnasium. Por un lado, desarrollé un enfoque clásico tabular (Q-Learning con discretización del espacio de estados) y, por el otro, un enfoque de aprendizaje profundo (DQN), equipado con red neuronal, experience replay y target network.
+Todo el trabajo lo ejecuté sobre el repositorio pedagógico de emiliomunozai/mountain_car. La gran ventaja de este repo es que ya trae toda la infraestructura lista (la interfaz de línea de comandos, los bucles de entrenamiento, los métodos para guardar y cargar modelos, y el sistema de logging), dejando los algoritmos principales como huecos vacíos que me tocó completar.
+En este repositorio vas a encontrar esos huecos ya resueltos por mí, junto con el análisis detallado del ejercicio de diagnóstico del DQN y toda la evidencia de su entrenamiento.
 
 ## Contenido del repo
 
@@ -33,11 +35,12 @@ Implementación y comparación de dos agentes de aprendizaje por refuerzo sobre 
 └── uv.lock
 ```
 
-## El entorno en una frase
+## El entorno
+Me enfrenté a un escenario clásico: un carro con un motor demasiado débil que se queda atrapado en el fondo de un valle. Como no tiene la potencia para subir la colina de frente, la única solución es aprender a oscilar hacia atrás y hacia adelante para ganar el impulso necesario.
 
-Un carro con motor demasiado débil está atrapado en un valle. No puede subir la colina de frente; tiene que oscilar hacia atrás y hacia adelante para ganar impulso. Cada paso otorga recompensa `-1`, el episodio se corta a los 200 pasos, y llegar a la bandera (`posición ≥ 0.5`) termina el episodio. El retorno total es simplemente el negativo del número de pasos, así que **menos negativo es mejor**. El umbral convencional de "resuelto" es `-110`.
+Para este entorno, cada paso me otorga una recompensa de 1 negativo, el episodio se corta a los 200 pasos, y logro terminarlo con éxito si alcanzo la bandera (posición mayor o igual a 0.5). Como el retorno total equivale simplemente al negativo del número de pasos, menos negativo siempre es mejor, teniendo como meta superar el umbral convencional de resuelto, que está en 110 negativo.
 
-Detalles completos del espacio de observaciones (2 continuos: posición y velocidad), acciones (3 discretas: izquierda / nada / derecha) y recompensas están en `EXERCISES.md` y en el README original del repo base.
+Si quieres consultar los detalles técnicos completos como el espacio de observaciones (dos variables continuas: posición y velocidad), las tres acciones discretas (izquierda, nada, derecha) y el sistema de recompensas, los dejé documentados en EXERCISES.md y en el README original del repositorio base.
 
 ## Instalación
 
@@ -92,9 +95,13 @@ python3 make_plots.py cmp            # comparación
 
 El agente vive en `src/mountain_car/agents/qlearning.py`. Se implementaron tres funciones:
 
-- **`discretize(obs)`** convierte la observación continua de 2 dimensiones en una clave `(i, j)` de la tabla Q usando `np.digitize` sobre los bordes de bins precalculados. Con `n_bins = 20` la rejilla tiene 400 celdas, y las cotas duras que publica el entorno para posición y velocidad definen los extremos, así que no hace falta ajustar manualmente ningún umbral.
-- **`select_action(state)`** implementa política ε-greedy: con probabilidad `ε` una acción uniformemente aleatoria, en caso contrario el `argmax` de `Q(s, ·)`. La bandera `deterministic=True` fuerza la rama voraz para evaluación y renderizado.
-- **`_update(...)`** aplica el paso TD:
+- **`Para la versión tabular, implementé las siguientes funciones clave:
+
+    discretize(obs): Me encargué de que esta función convierta la observación continua de dos dimensiones en una clave (i, j) de la tabla Q, utilizando np.digitize sobre los bordes de los bins precalculados. Con un valor de n_bins = 20, la rejilla cuenta con 400 celdas, y como las cotas estrictas del entorno para la posición y la velocidad ya definen los extremos, no necesité ajustar manualmente ningún umbral.
+
+    select_action(state): Aquí programé la política épsilon-greedy. Con una probabilidad épsilon elijo una acción uniformemente al azar, y en caso contrario tomo el argmax de la tabla Q. Además, incluí la bandera deterministic=True para forzar la rama puramente voraz cuando necesito evaluar o renderizar el agente.
+
+    _update(...): Es la encargada de aplicar el paso de actualización por diferencia temporal (TD).
 
   ```
   target = r + γ · max_a' Q(s', a')     si el episodio NO terminó
