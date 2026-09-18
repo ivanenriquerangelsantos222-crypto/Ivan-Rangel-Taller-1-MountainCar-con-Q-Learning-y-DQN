@@ -180,17 +180,19 @@ Los detalles que hay que cuidar en `_learn()`:
 
 ## Ejercicio 3 — Por qué DQN no aprende (y cómo se arregla)
 
-Con los dos huecos del Ejercicio 2 correctamente implementados, DQN sobre MountainCar reporta una recompensa **exactamente plana en `−200` por miles de episodios**. La pérdida baja, la red se actualiza, pero el desempeño no se mueve. El enunciado propone diagnosticarlo antes de parchar.
+Una vez que implementé correctamente los dos huecos del Ejercicio 2, el DQN sobre MountainCar comenzó a reportar un comportamiento muy particular: una recompensa exactamente plana de 200 puntos negativos durante miles de episodios. Aunque la pérdida baja y la red neuronal se actualiza de manera constante, el desempeño del agente no se mueve en absoluto. Por esta razón, el enunciado me propuso diagnosticar la causa raíz antes de intentar cualquier parche.
 
 ### El diagnóstico
 
 Las tres piezas del diagnóstico:
 
-1. **El algoritmo no está roto.** Corriendo el mismo `DQNAgent` sobre `CartPole-v1`, la recompensa sube limpiamente en pocos cientos de episodios. Luego el problema no está en `_learn` ni en `QNetwork`, sino en algo específico de la interacción con MountainCar.
-2. **El agente nunca ve la señal que necesita aprender.** Un agente que juega acciones uniformes al azar durante 300 episodios llega a la bandera exactamente **cero veces**. Cada episodio termina con la misma trayectoria de recompensas `−1, −1, …, −1`. No hay nada que un algoritmo pueda distinguir entre acciones.
-3. **La red aprende correctamente el problema que se le muestra.** Al inspeccionar los Q-valores tras 1 500 episodios de entrenamiento fallido, el promedio se acerca al punto fijo de Bellman `−1 / (1 − γ) = −100` y la dispersión entre las tres acciones para un mismo estado es prácticamente cero. La red *ha aprendido* que ninguna acción cambia el resultado — que, dado lo que se le mostró, es literalmente cierto.
+El algoritmo no está roto. Al correr exactamente el mismo DQNAgent sobre CartPole-v1, me di cuenta de que la recompensa sube limpiamente en pocos cientos de episodios. Esto me confirmó que el problema no está en las funciones de aprendizaje ni en la red neuronal, sino en algo muy específico de la interacción con el entorno de MountainCar.
 
-Con esto, la conclusión: el fallo no está en el aprendizaje sino en la **colección de datos**. La exploración ε-greedy pura muestra una acción independiente en cada paso, y las acciones consecutivas terminan siendo estadísticamente independientes. Con tres acciones y ε alto, cada paso es un dado de tres caras. Para escapar del valle el carro tiene que empujar en la misma dirección durante ~20 pasos seguidos para acumular impulso. La probabilidad de eso en ε-greedy pura:
+    El agente nunca ve la señal que necesita aprender. Un agente que juega con acciones uniformes al azar durante 300 episodios llega a la bandera exactamente cero veces. Cada episodio termina con la misma trayectoria constante de penalizaciones de 1 negativo por paso, por lo que no hay absolutamente nada que el algoritmo pueda distinguir entre una acción y otra.
+
+    La red aprende correctamente el problema que se le muestra. Al inspeccionar los valores Q después de 1.500 episodios de un entrenamiento fallido, vi que el promedio se acerca al punto fijo teórico de Bellman (equivalente a 100 puntos negativos) y que la dispersión entre las tres acciones para un mismo estado es prácticamente cero. En pocas palabras, la red aprendió que ninguna acción cambia el resultado, lo cual, dado lo que se le mostró en los datos, es literalmente cierto.
+
+A partir de esto, mi conclusión es clara: el fallo no está en el aprendizaje, sino en la recolección de datos. La exploración épsilon greedy pura elige una acción independiente en cada paso, por lo que las acciones consecutivas terminan siendo estadísticamente independientes. Al tener tres opciones y un valor de épsilon alto, cada paso funciona como tirar un dado de tres caras. Sin embargo, para escapar del valle, el carro necesita empujar hacia la misma dirección durante unos 20 pasos seguidos para poder acumular el impulso necesario. La probabilidad de lograr eso con una exploración puramente aleatoria es...
 
 ```
 (1/3)^20 ≈ 3 × 10⁻¹⁰
@@ -200,13 +202,17 @@ Es decir: no es cuestión de mala suerte, la exploración *no puede* producir es
 
 ### El arreglo
 
-Lo que la exploración necesita es **correlación temporal**: acciones consecutivas que no sean independientes, sino que tiendan a repetirse. La implementación aquí (`select_action` en `dqn.py`) es la más simple que cumple esa propiedad:
+Lo que la exploración realmente necesita es correlación temporal: es decir, acciones consecutivas que no sean independientes entre sí, sino que tiendan a repetirse. La solución que implementé en select_action dentro de dqn.py es la forma más sencilla de cumplir con esta propiedad:
 
-- Cada vez que la política decide explorar, en lugar de sortear una acción para ese paso solamente, se compromete a una acción durante una **ráfaga** de `[15, 35]` pasos consecutivos.
-- La acción del burst se elige uniformemente entre las **acciones activas** `{0, 2}` (izquierda o derecha). La acción `1` ("no acelerar") está excluida del explorador: sostenerla no le sirve al agente en un problema donde el impulso es la clave.
-- Cualquier paso voraz (elegido por el `argmax` de la red) cancela la ráfaga en curso. El próximo paso exploratorio arranca una nueva.
-- El estado de la ráfaga se reinicia al inicio de cada episodio.
-- El modo `deterministic=True` (evaluación y renderizado) es puramente voraz y no consulta el estado de ráfaga.
+    Cada vez que la política decide explorar, en lugar de sortear una acción para un solo paso, se compromete a mantenerla durante una ráfaga que dura entre 15 y 35 pasos consecutivos.
+
+    La acción de esa ráfaga se elige de forma uniforme únicamente entre las acciones activas (izquierda o derecha). La opción de no acelerar queda totalmente excluida del explorador, ya que sostenerla no le aporta ningún beneficio al agente en un problema donde el impulso es la clave.
+
+    Si ocurre cualquier paso voraz elegido mediante el argmax de la red, este cancela de inmediato la ráfaga en curso, haciendo que el siguiente paso exploratorio comience una nueva.
+
+    El estado de la ráfaga se reinicia por completo al comienzo de cada episodio.
+
+    El modo determinista, utilizado para evaluación y renderizado, funciona de manera puramente voraz y no consulta en ningún momento el estado de la ráfaga.
 
 El resto del algoritmo — la red online, la red target, el replay, el paso de Bellman, la pérdida MSE, el paso de gradiente — se dejó exactamente como en el Ejercicio 2. Solo cambió *cómo se explora*, no *qué se aprende*.
 
@@ -226,9 +232,9 @@ El primer intento usó bursts de `[8, 20]` pasos entre las tres acciones. Despu�
 | **Alcanzó la bandera** | **83 de 100 episodios** |
 | Tiempo total de entrenamiento | 687.7 s (~11.5 min) |
 
-La curva refleja el efecto del fix con claridad: durante los primeros ~500 episodios la recompensa se mantiene cerca de `−200` mientras el buffer se llena de trayectorias tempranas donde los bursts todavía no coinciden con la posición correcta del carro. Entre los episodios 500 y 1 100 aparece la fase de despegue: la red empieza a distinguir acciones que llevan a estados con más impulso, y la recompensa cae rápidamente de `−200` a `−110`. Del episodio 1 100 en adelante se estabiliza en la banda `−105` a `−120`, cruzando el umbral convencional de resuelto y por debajo del promedio final de Q-Learning.
+La curva refleja con toda claridad el efecto de mi corrección: durante los primeros 500 episodios aproximadamente, la recompensa se mantiene cerca de los 200 puntos negativos mientras el búfer se llena de trayectorias tempranas donde las ráfagas todavía no coinciden con la posición correcta del carro. Entre los episodios 500 y 1.100 aparece la fase de despegue, ya que la red empieza a distinguir las acciones que conducen a estados con mayor impulso y la recompensa cae con rapidez desde los 200 hasta los 110 puntos negativos. Del episodio 1.100 en adelante se estabiliza en una banda que va de los 105 a los 120 puntos negativos, cruzando con éxito el umbral convencional de resuelto y ubicándose por debajo del promedio final del enfoque de Q-Learning.
 
-Sobre el 83/100 en evaluación: la política aprendida es más veloz que la del Q-Learning tabular cuando resuelve (llega en promedio en 121 pasos vs 139), pero es menos robusta a variaciones del estado inicial. Los 17 episodios fallidos comparten un patrón — velocidad inicial cercana a cero y posición en el extremo izquierdo del valle, donde la política aprendida no encuentra la secuencia correcta para arrancar. Es un compromiso real: DQN converge a una política óptima donde llega a resolver, pero su cobertura del espacio de estados es menos uniforme que la de una tabla que barre celda por celda.
+En cuanto al rendimiento de 83 sobre 100 en la evaluación, la política que aprendí es bastante más veloz que la del Q-Learning tabular cuando logra resolver el problema, ya que llega a la meta en un promedio de 121 pasos frente a los 139 del método tabular, aunque resulta menos robusta ante las variaciones del estado inicial. Los 17 episodios que fallaron comparten un patrón muy claro: una velocidad inicial cercana a cero ubicada justo en el extremo izquierdo del valle, donde la política aprendida no logra encontrar la secuencia correcta para arrancar. Esto representa un compromiso real, ya que DQN converge hacia una política óptima capaz de resolver la tarea, pero su cobertura del espacio de estados termina siendo menos uniforme que la de una tabla que barre celda por celda.
 
 ## Comparación Q-Learning vs DQN
 
@@ -247,15 +253,15 @@ Sobre el 83/100 en evaluación: la política aprendida es más veloz que la del 
 
 Cinco observaciones sobre la comparación:
 
-**Eficiencia de muestreo.** DQN converge en aproximadamente **un octavo de los episodios** que necesita Q-Learning (~1 200 vs ~10 000). El motivo es directo: cada gradiente actualiza los pesos de la red con información de un mini-batch de 64 transiciones muestreadas del replay, mientras que Q-Learning solo actualiza la celda del estado exacto por el que pasó el agente. En espacios discretos pequeños, esto no compensa el costo por episodio de DQN; en espacios grandes o continuos, sí.
+Eficiencia de muestreo. Noté que DQN converge en aproximadamente un octavo de los episodios que necesita Q-Learning (unos 1.200 frente a unos 10.000). El motivo es directo: cada paso de gradiente actualiza los pesos de la red con la información de un lote de 64 transiciones muestreadas del búfer, mientras que Q-Learning solo actualiza la celda exacta del estado por el que pasó el agente. En espacios discretos pequeños esto no siempre compensa el costo por episodio de DQN, pero en espacios grandes o continuos sí marca la diferencia.
 
-**Tiempo de reloj.** A pesar de necesitar menos episodios, DQN toma **siete veces más tiempo total** (688 s vs 98 s) porque cada paso hace un gradiente de red además de la interacción con el entorno. En CPU pura y sin GPU, MountainCar es un caso donde Q-Learning tabular gana en tiempo de reloj — como suele ocurrir en problemas de baja dimensión.
+    Tiempo de reloj. A pesar de requerir menos episodios, DQN me tomó siete veces más tiempo total (688 segundos frente a 98 segundos) porque cada paso implica calcular un gradiente en la red además de interactuar con el entorno. Al trabajar en una CPU pura y sin GPU, MountainCar resulta ser un caso donde Q-Learning tabular gana en tiempo de ejecución, tal como suele suceder en problemas de baja dimensión.
 
-**Calidad de la política.** Cuando llegan, ambos resuelven, pero DQN llega en promedio **más rápido** (121 pasos vs 139). Q-Learning con `n_bins = 20` cuantiza posición y velocidad en pasos gruesos y la política que emerge es conservadora — llega, pero no aprovecha del todo el impulso. DQN opera sobre la observación continua sin cuantización y su política es más ajustada.
+    Calidad de la política. Cuando logran llegar a la meta, ambos métodos resuelven el problema, pero DQN lo hace en promedio más rápido (121 pasos frente a 139). Con Q-Learning y 20 bins, cuantizo la posición y la velocidad en pasos gruesos, lo que genera una política más conservadora: llega a la meta, pero no aprovecha del todo el impulso. En cambio, DQN opera directamente sobre la observación continua sin cuantización, logrando una política mucho más ajustada.
 
-**Robustez.** Aquí Q-Learning gana en la métrica que más importa: llega en el 100% de los episodios de evaluación. DQN falla en 17 de 100 desde estados iniciales específicos. Esto es coherente con lo esperado: la tabla, aunque burda, cubre uniformemente el espacio discreto; la red profunda, aunque más precisa, tiene "huecos" en zonas del espacio poco visitadas durante entrenamiento.
+    Robustez. Aquí es donde Q-Learning gana en la métrica que más me importa: alcanza la meta en el 100% de los episodios de evaluación, mientras que DQN falla en 17 de cada 100 desde ciertos estados iniciales específicos. Esto es totalmente coherente con lo esperado: aunque la tabla es burda, cubre de manera uniforme todo el espacio discreto; por el contrario, la red profunda, a pesar de ser más precisa, deja algunos huecos en zonas del espacio que se visitaron poco durante el entrenamiento.
 
-**Dificultad conceptual.** Q-Learning tabular exige entender el bucle TD y la actualización de la tabla. DQN, además, exige entender por qué se necesita una red target, por qué se necesita un replay buffer, cómo se cuidan las formas de los tensores, y — como se vio en el Ejercicio 3 — cómo la exploración interactúa con la estructura del problema. La brecha en dificultad no es menor: el paso de tabla a red no es "el mismo algoritmo con más parámetros", es un rediseño completo del entrenamiento.
+    Dificultad conceptual. Q-Learning tabular exige comprender el bucle de diferencia temporal y la actualización de la tabla. DQN, por su parte, requiere además entender por qué se necesita una red objetivo, por qué es indispensable un búfer de repetición, cómo cuidar las dimensiones de los tensores y, tal como lo comprobé en el ejercicio anterior, cómo interactúa la exploración con la estructura propia del problema. La brecha de dificultad no es menor: dar el salto de la tabla a la red no consiste simplemente en aplicar el mismo algoritmo con más parámetros, sino en realizar un rediseño completo del entrenamiento.
 
 ### Cuándo elegir cada uno
 
@@ -265,7 +271,7 @@ DQN es la elección correcta cuando el espacio de estados es continuo de alta di
 
 ## Dibujos del ciclo de entrenamiento
 
-Los dos dibujos requeridos por la rúbrica están en la carpeta `dibujos/` como imágenes propias (no generadas por IA). El guion detallado que se usó para elaborarlos — con la lista de nodos, flechas y etiquetas para cada uno — está en `GUION_DIBUJOS.md`.
+Los dos dibujos los coloque en la carpeta `dibujos/`. 
 
 - **`dibujos/qlearning_ciclo.jpg`** — ciclo `entorno → discretización → política ε-greedy → env.step → actualización TD → Q-tabla`, con la ecuación TD destacada.
 - **`dibujos/dqn_ciclo.jpg`** — ciclo con **replay buffer**, **red target**, **red online**, **cálculo del blanco de Bellman**, **pérdida MSE** y **paso de gradiente Adam**. La exploración por ráfagas está marcada explícitamente como el punto distintivo del fix del Ejercicio 3.
