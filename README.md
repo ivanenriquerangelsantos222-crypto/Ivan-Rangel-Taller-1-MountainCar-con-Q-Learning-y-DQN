@@ -135,7 +135,15 @@ El agente vive en `src/mountain_car/agents/qlearning.py`. Se implementaron tres 
 | Estados visitados de la tabla | 300 / 400 |
 | Tiempo total de entrenamiento | 97.8 s |
 
-La curva muestra tres fases claras: una meseta inicial de exploración ciega en `−200` mientras el agente no ha rozado la bandera todavía, un despegue a partir del episodio ~2 500 cuando algunas trayectorias exploratorias empiezan a llegar y la señal se propaga hacia atrás por la tabla, y una banda estable en `−140` a partir del episodio 10 000. La política final resuelve el entorno con éxito en todos los episodios de evaluación, aunque no cruza el umbral convencional de `−110`: la resolución discreta de 20×20 celdas es suficiente para llegar, pero deja algo de holgura frente a un agente con mejor granularidad.
+.Al graficar el rendimiento, pude identificar tres fases muy claras en la curva:
+
+    Una meseta inicial de exploración ciega anclada en los 200 puntos negativos, mientras el agente todavía no rozaba la bandera por primera vez.
+
+    Un despegue a partir del episodio 2.500 aproximadamente, justo cuando algunas trayectorias exploratorias logran llegar a la meta y la recompensa empieza a propagarse hacia atrás por toda la tabla.
+
+    Una banda estable que se consolida alrededor de los 140 puntos negativos a partir del episodio 10.000.
+
+Con esto, mi política final logra resolver el entorno con éxito en todos los episodios de evaluación. Aunque no alcanza a cruzar el umbral convencional de los 110 puntos negativos, la resolución discreta de 20 por 20 celdas resulta suficiente para completar la tarea, aunque deja un margen de holgura frente a un agente con una granularidad más fina.
 
 ## Ejercicio 2 — Deep Q-Network
 
