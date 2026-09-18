@@ -271,10 +271,11 @@ DQN es la elección correcta cuando el espacio de estados es continuo de alta di
 
 ## Dibujos del ciclo de entrenamiento
 
-Los dos dibujos los coloque en la carpeta `dibujos/`. 
+Para documentar todo visualmente, guardé los dos esquemas en la carpeta dibujos/:
 
-- **`dibujos/qlearning_ciclo.jpg`** — ciclo `entorno → discretización → política ε-greedy → env.step → actualización TD → Q-tabla`, con la ecuación TD destacada.
-- **`dibujos/dqn_ciclo.jpg`** — ciclo con **replay buffer**, **red target**, **red online**, **cálculo del blanco de Bellman**, **pérdida MSE** y **paso de gradiente Adam**. La exploración por ráfagas está marcada explícitamente como el punto distintivo del fix del Ejercicio 3.
+    El archivo dibujos/qlearning_ciclo.jpg ilustra paso a paso el ciclo que va desde el entorno y la discretización hasta la política épsilon greedy, el paso en el entorno, la actualización por diferencia temporal y la tabla Q, con su respectiva ecuación destacada.
+
+    El archivo dibujos/dqn_ciclo.jpg detalla todo el proceso del deep Q network, incluyendo el búfer de repetición, la red objetivo, la red principal, el cálculo del blanco de Bellman, la pérdida y el paso de optimización con Adam. Ahí mismo dejé señalada la exploración por ráfagas como la clave que solucionó el problema del ejercicio anterior.
 
 ## Reflexión final
 
